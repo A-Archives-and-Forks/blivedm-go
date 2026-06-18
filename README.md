@@ -18,6 +18,9 @@ go get github.com/Akegarasu/blivedm-go
 - 上舰
 - 开播
 - USER_TOAST_MSG
+- 进入直播间
+- 在线人数统计
+- 高能用户排行榜
 
 ```go
 package main

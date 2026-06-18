@@ -18,13 +18,16 @@ var (
 )
 
 type eventHandlers struct {
-	danmakuMessageHandlers []func(*message.Danmaku)
-	superChatHandlers      []func(*message.SuperChat)
-	giftHandlers           []func(*message.Gift)
-	guardBuyHandlers       []func(*message.GuardBuy)
-	liveStartHandlers      []func(start *message.LiveStart)
-	liveStopHandlers       []func(start *message.LiveStop)
-	userToastHandlers      []func(*message.UserToast)
+	danmakuMessageHandlers  []func(*message.Danmaku)
+	superChatHandlers       []func(*message.SuperChat)
+	giftHandlers            []func(*message.Gift)
+	guardBuyHandlers        []func(*message.GuardBuy)
+	liveStartHandlers       []func(start *message.LiveStart)
+	liveStopHandlers        []func(start *message.LiveStop)
+	userToastHandlers       []func(*message.UserToast)
+	interactWordHandlers    []func(*message.InteractWord)
+	onlineRankCountHandlers []func(*message.OnlineRankCount)
+	onlineRankV2Handlers    []func(*message.OnlineRankV2)
 }
 
 type customEventHandlers map[string]func(s string)
@@ -77,6 +80,21 @@ func (c *Client) OnLiveStop(f func(start *message.LiveStop)) {
 // OnUserToast 添加 UserToast 的处理器
 func (c *Client) OnUserToast(f func(*message.UserToast)) {
 	c.eventHandlers.userToastHandlers = append(c.eventHandlers.userToastHandlers, f)
+}
+
+// OnInteractWord 添加 进入直播间事件 的处理器
+func (c *Client) OnInteractWord(f func(*message.InteractWord)) {
+	c.eventHandlers.interactWordHandlers = append(c.eventHandlers.interactWordHandlers, f)
+}
+
+// OnOnlineRankCount 添加 在线人数统计事件 的处理器
+func (c *Client) OnOnlineRankCount(f func(*message.OnlineRankCount)) {
+	c.eventHandlers.onlineRankCountHandlers = append(c.eventHandlers.onlineRankCountHandlers, f)
+}
+
+// OnOnlineRankV2 添加 高能用户排行榜事件 的处理器
+func (c *Client) OnOnlineRankV2(f func(*message.OnlineRankV2)) {
+	c.eventHandlers.onlineRankV2Handlers = append(c.eventHandlers.onlineRankV2Handlers, f)
 }
 
 // Handle 处理一个包
@@ -144,6 +162,27 @@ func (c *Client) Handle(p packet.Packet) {
 			u.Parse(p.Body)
 			for _, fn := range c.eventHandlers.userToastHandlers {
 				go cover(func() { fn(u) })
+			}
+		// 进入直播间
+		case "INTERACT_WORD":
+			i := new(message.InteractWord)
+			i.Parse(p.Body)
+			for _, fn := range c.eventHandlers.interactWordHandlers {
+				go cover(func() { fn(i) })
+			}
+		// 在线人数统计
+		case "ONLINE_RANK_COUNT":
+			o := new(message.OnlineRankCount)
+			o.Parse(p.Body)
+			for _, fn := range c.eventHandlers.onlineRankCountHandlers {
+				go cover(func() { fn(o) })
+			}
+		// 高能用户排行榜
+		case "ONLINE_RANK_V2":
+			o := new(message.OnlineRankV2)
+			o.Parse(p.Body)
+			for _, fn := range c.eventHandlers.onlineRankV2Handlers {
+				go cover(func() { fn(o) })
 			}
 		default:
 			if _, ok := knownCMDMap[cmd]; ok {

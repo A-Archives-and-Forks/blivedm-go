@@ -1,5 +1,11 @@
 package message
 
+import (
+	"github.com/Akegarasu/blivedm-go/utils"
+	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
+)
+
 // WidgetBanner
 // TODO: widget_list的code不定
 type WidgetBanner struct {
@@ -100,12 +106,95 @@ type InteractWord struct {
 	Timestamp   int    `json:"timestamp"`
 	TriggerTime int64  `json:"trigger_time"`
 	Uid         int    `json:"uid"`
-	Uname       string `json:"uname"`
-	UnameColor  string `json:"uname_color"`
+	Uinfo       struct {
+		Base struct {
+			Name string `json:"name"`
+			Face string `json:"face"`
+		} `json:"base"`
+		Guard struct {
+			Level int `json:"level"`
+		} `json:"guard"`
+	} `json:"uinfo"`
+	Uname      string `json:"uname"`
+	UnameColor string `json:"uname_color"`
 }
 
 type OnlineRankCount struct {
-	Count int `json:"count"`
+	Count           int    `json:"count"`
+	CountText       string `json:"count_text"`
+	OnlineCount     int    `json:"online_count"`
+	OnlineCountText string `json:"online_count_text"`
+}
+
+type OnlineRankV2 struct {
+	RankType   string           `json:"rank_type"`
+	OnlineList []OnlineRankUser `json:"online_list"`
+}
+
+type OnlineRankUser struct {
+	Uid        int    `json:"uid"`
+	Uname      string `json:"uname"`
+	Face       string `json:"face"`
+	Rank       int    `json:"rank"`
+	Score      string `json:"score"`
+	GuardLevel int    `json:"guard_level"`
+	Uinfo      struct {
+		Base struct {
+			Name string `json:"name"`
+			Face string `json:"face"`
+		} `json:"base"`
+		Guard struct {
+			Level int `json:"level"`
+		} `json:"guard"`
+	} `json:"uinfo"`
+}
+
+func (u OnlineRankUser) Name() string {
+	if u.Uinfo.Base.Name != "" {
+		return u.Uinfo.Base.Name
+	}
+	return u.Uname
+}
+
+func (u OnlineRankUser) Avatar() string {
+	if u.Uinfo.Base.Face != "" {
+		return u.Uinfo.Base.Face
+	}
+	return u.Face
+}
+
+func (u OnlineRankUser) Guard() int {
+	if u.Uinfo.Guard.Level != 0 {
+		return u.Uinfo.Guard.Level
+	}
+	return u.GuardLevel
+}
+
+func (i *InteractWord) Parse(data []byte) {
+	sb := utils.BytesToString(data)
+	sd := gjson.Get(sb, "data").String()
+	err := utils.UnmarshalStr(sd, i)
+	if err != nil {
+		log.Error("parse InteractWord failed")
+	}
+}
+
+func (o *OnlineRankCount) Parse(data []byte) {
+	sb := utils.BytesToString(data)
+	sd := gjson.Get(sb, "data").String()
+	err := utils.UnmarshalStr(sd, o)
+	if err != nil {
+		log.Error("parse OnlineRankCount failed")
+	}
+}
+
+func (o *OnlineRankV2) Parse(data []byte) {
+	sb := utils.BytesToString(data)
+	sd := gjson.Get(sb, "data").String()
+	err := utils.UnmarshalStr(sd, o)
+	if err != nil {
+		log.Error("parse OnlineRankV2 failed")
+	}
 }
 
 type LiveInteractiveGame struct {

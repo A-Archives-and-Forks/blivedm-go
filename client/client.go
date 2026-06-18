@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -58,38 +57,50 @@ func (c *Client) init() error {
 			log.Errorf("cannot found account token")
 			return errors.New("账号未登录")
 		}
-		uid, err := api.GetUid(c.Cookie)
-		if err != nil {
-			log.Error(err)
+		if uid, ok := api.ExtractUIDFromCookie(c.Cookie); ok {
+			c.Uid = uid
+		} else {
+			uid, err := api.GetUid(c.Cookie)
+			if err != nil {
+				log.Error(err)
+			}
+			c.Uid = uid
 		}
-		c.Uid = uid
-		re := regexp.MustCompile("_uuid=(.+?);")
-		result := re.FindAllStringSubmatch(c.Cookie, -1)
-		if len(result) > 0 {
-			c.Buvid = result[0][1]
+		if buvid, ok := api.ExtractBuvidFromCookie(c.Cookie); ok {
+			c.Buvid = buvid
 		}
 	}
 	roomInfo, err := api.GetRoomInfo(c.RoomID)
-	// 失败降级
-	if err != nil || roomInfo.Code != 0 {
-		log.Errorf("room=%d init GetRoomInfo fialed, %s", c.RoomID, err)
+	if err != nil {
+		log.Errorf("room=%d init GetRoomInfo failed, %s", c.RoomID, err)
+		return err
+	}
+	if roomInfo.Code != 0 {
+		return fmt.Errorf("room=%d init GetRoomInfo failed, code=%d, message=%s", c.RoomID, roomInfo.Code, roomInfo.Message)
 	}
 	c.RoomID = roomInfo.Data.RoomId
-	if c.host == "" {
+	if len(c.hostList) == 0 {
 		info, err := api.GetDanmuInfo(c.RoomID, c.Cookie)
 		// Workaround for getDanmuInfo API. Error code 352
-		if err != nil || info.Code != 0 {
-			c.hostList = []string{"broadcastlv.chat.bilibili.com"}
+		if err != nil {
+			log.Errorf("room=%d init GetDanmuInfo failed, %s", c.RoomID, err)
+			c.UseDefaultHost()
+			c.token = ""
+		} else if info.Code == 352 || info.Code == -352 {
+			log.Errorf("room=%d init GetDanmuInfo risk control, code=%d, message=%s", c.RoomID, info.Code, info.Message)
+			c.UseDefaultHost()
+			c.token = ""
+		} else if info.Code != 0 {
+			return fmt.Errorf("room=%d init GetDanmuInfo failed, code=%d, message=%s", c.RoomID, info.Code, info.Message)
 		} else {
 			for _, h := range info.Data.HostList {
 				c.hostList = append(c.hostList, h.Host)
 			}
+			c.token = info.Data.Token
 		}
-		c.token = info.Data.Token
 	}
-	if c.token == "" {
-		log.Error("cannot get account token")
-		return errors.New("token 获取失败")
+	if len(c.hostList) == 0 {
+		c.UseDefaultHost()
 	}
 	return nil
 }
@@ -97,6 +108,9 @@ func (c *Client) init() error {
 func (c *Client) connect() error {
 	reqHeader := &http.Header{}
 	reqHeader.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36")
+	if len(c.hostList) == 0 {
+		return errors.New("弹幕服务器为空")
+	}
 retry:
 	c.host = c.hostList[c.retryCount%len(c.hostList)]
 	c.retryCount++
@@ -178,6 +192,7 @@ func (c *Client) Stop() {
 
 func (c *Client) SetHost(host string) {
 	c.host = host
+	c.hostList = []string{host}
 }
 
 // UseDefaultHost 使用默认 host broadcastlv.chat.bilibili.com
