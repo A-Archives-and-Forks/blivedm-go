@@ -1,8 +1,8 @@
 package api
 
 import (
+	"context"
 	"fmt"
-	"net/http"
 )
 
 type ContributionRankResponse struct {
@@ -41,6 +41,10 @@ func (m *ContributionMedalInfo) MedalColor() string {
 }
 
 func GetContributionRank(roomID, ruid int, cookie string, page, pageSize int) (*ContributionRankResponse, error) {
+	return GetContributionRankContext(context.Background(), roomID, ruid, cookie, page, pageSize)
+}
+
+func GetContributionRankContext(ctx context.Context, roomID, ruid int, cookie string, page, pageSize int) (*ContributionRankResponse, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -52,19 +56,15 @@ func GetContributionRank(roomID, ruid int, cookie string, page, pageSize int) (*
 		"https://api.live.bilibili.com/xlive/general-interface/v1/rank/queryContributionRank?ruid=%d&room_id=%d&page=%d&page_size=%d&type=online_rank&switch=contribution_rank&platform=web&web_location=0.0",
 		ruid, roomID, page, pageSize,
 	)
-	signedURL, err := WbiKeysSignString(rawURL)
+	signedURL, err := WbiKeysSignStringContext(ctx, rawURL)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &ContributionRankResponse{}
-	headers := &http.Header{}
-	headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0")
+	headers := liveHeaders(cookie)
 	headers.Set("Referer", "https://live.bilibili.com/")
-	if cookie != "" {
-		headers.Set("Cookie", cookie)
-	}
-	if err := GetJsonWithHeader(signedURL, headers, result); err != nil {
+	if err := GetJsonWithHeaderContext(ctx, signedURL, headers, result); err != nil {
 		return nil, err
 	}
 	return result, nil

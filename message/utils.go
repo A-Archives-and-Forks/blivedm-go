@@ -1,7 +1,9 @@
 package message
 
 import (
-	"github.com/Akegarasu/blivedm-go/utils"
+	"encoding/json"
+	"fmt"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
@@ -76,6 +78,8 @@ type HotRankSettlementV2 struct {
 }
 
 type InteractWord struct {
+	UserDetails  *UserInfo `json:"-"`
+	User         *User     `json:"-"`
 	Contribution struct {
 		Grade int `json:"grade"`
 	} `json:"contribution"`
@@ -95,28 +99,20 @@ type InteractWord struct {
 		Special          string `json:"special"`
 		TargetId         int    `json:"target_id"`
 	} `json:"fans_medal"`
-	Identities  []int  `json:"identities"`
-	IsSpread    int    `json:"is_spread"`
-	MsgType     int    `json:"msg_type"`
-	Roomid      int    `json:"roomid"`
-	Score       int64  `json:"score"`
-	SpreadDesc  string `json:"spread_desc"`
-	SpreadInfo  string `json:"spread_info"`
-	TailIcon    int    `json:"tail_icon"`
-	Timestamp   int    `json:"timestamp"`
-	TriggerTime int64  `json:"trigger_time"`
-	Uid         int    `json:"uid"`
-	Uinfo       struct {
-		Base struct {
-			Name string `json:"name"`
-			Face string `json:"face"`
-		} `json:"base"`
-		Guard struct {
-			Level int `json:"level"`
-		} `json:"guard"`
-	} `json:"uinfo"`
-	Uname      string `json:"uname"`
-	UnameColor string `json:"uname_color"`
+	Identities  []int          `json:"identities"`
+	IsSpread    int            `json:"is_spread"`
+	MsgType     int            `json:"msg_type"`
+	Roomid      int            `json:"roomid"`
+	Score       int64          `json:"score"`
+	SpreadDesc  string         `json:"spread_desc"`
+	SpreadInfo  string         `json:"spread_info"`
+	TailIcon    int            `json:"tail_icon"`
+	Timestamp   int            `json:"timestamp"`
+	TriggerTime int64          `json:"trigger_time"`
+	Uid         int            `json:"uid"`
+	Uinfo       LegacyUserInfo `json:"uinfo"`
+	Uname       string         `json:"uname"`
+	UnameColor  string         `json:"uname_color"`
 }
 
 type OnlineRankCount struct {
@@ -132,21 +128,14 @@ type OnlineRankV2 struct {
 }
 
 type OnlineRankUser struct {
-	Uid        int    `json:"uid"`
-	Uname      string `json:"uname"`
-	Face       string `json:"face"`
-	Rank       int    `json:"rank"`
-	Score      string `json:"score"`
-	GuardLevel int    `json:"guard_level"`
-	Uinfo      struct {
-		Base struct {
-			Name string `json:"name"`
-			Face string `json:"face"`
-		} `json:"base"`
-		Guard struct {
-			Level int `json:"level"`
-		} `json:"guard"`
-	} `json:"uinfo"`
+	UserDetails *UserInfo      `json:"-"`
+	Uid         int            `json:"uid"`
+	Uname       string         `json:"uname"`
+	Face        string         `json:"face"`
+	Rank        int            `json:"rank"`
+	Score       string         `json:"score"`
+	GuardLevel  int            `json:"guard_level"`
+	Uinfo       LegacyUserInfo `json:"uinfo"`
 }
 
 func (u OnlineRankUser) Name() string {
@@ -171,30 +160,99 @@ func (u OnlineRankUser) Guard() int {
 }
 
 func (i *InteractWord) Parse(data []byte) {
-	sb := utils.BytesToString(data)
-	sd := gjson.Get(sb, "data").String()
-	err := utils.UnmarshalStr(sd, i)
-	if err != nil {
-		log.Error("parse InteractWord failed")
+	if err := i.ParseJSON(data); err != nil {
+		log.WithError(err).Error("parse interact word failed")
+	}
+}
+
+func (i *InteractWord) ParseJSON(data []byte) error {
+	if gjson.GetBytes(data, "data.pb").Exists() {
+		return i.parseV2(data)
+	}
+	data = normalizeIntFlags(data, "data.fans_medal.is_lighted")
+	var next InteractWord
+	if err := decodeData(data, &next); err != nil {
+		return err
+	}
+	if err := requireJSONFields(data, "data.uid", "data.uname", "data.timestamp"); err != nil {
+		return err
+	}
+	if next.Uid < 0 {
+		return fmt.Errorf("invalid interact user ID")
+	}
+	if next.MsgType == 0 {
+		next.MsgType = 1
+	}
+	if raw := gjson.GetBytes(data, "data.uinfo"); raw.IsObject() {
+		if err := json.Unmarshal([]byte(raw.Raw), &next.UserDetails); err != nil {
+			return err
+		}
+	}
+	next.populateUser()
+	if next.User.Medal != nil {
+		next.User.Medal.IsLight = jsonFlag(gjson.GetBytes(data, "data.fans_medal.is_lighted"), true)
+	}
+	*i = next
+	return nil
+}
+
+func (i *InteractWord) populateUser() {
+	i.User = &User{Uid: i.Uid, Uname: i.Uname, Face: i.Uinfo.Base.Face,
+		GuardLevel: i.Uinfo.Guard.Level}
+	if i.UserDetails != nil {
+		i.User.WealthLevel = i.UserDetails.Wealth.Level
+	}
+	if m := i.FansMedal; m.MedalLevel > 0 {
+		i.User.Medal = &Medal{Name: m.MedalName, Level: m.MedalLevel, Color: m.MedalColor,
+			UpRoomId: m.AnchorRoomid, UpUid: m.TargetId, IsLight: m.IsLighted != 0}
 	}
 }
 
 func (o *OnlineRankCount) Parse(data []byte) {
-	sb := utils.BytesToString(data)
-	sd := gjson.Get(sb, "data").String()
-	err := utils.UnmarshalStr(sd, o)
-	if err != nil {
-		log.Error("parse OnlineRankCount failed")
+	if err := o.ParseJSON(data); err != nil {
+		log.WithError(err).Error("parse online rank count failed")
 	}
+}
+func (o *OnlineRankCount) ParseJSON(data []byte) error {
+	var next OnlineRankCount
+	if err := decodeData(data, &next); err != nil {
+		return err
+	}
+	if err := requireJSONFields(data, "data.count", "data.count_text", "data.online_count", "data.online_count_text"); err != nil {
+		return err
+	}
+	if next.Count < 0 || next.OnlineCount < 0 {
+		return fmt.Errorf("negative online count")
+	}
+	*o = next
+	return nil
 }
 
 func (o *OnlineRankV2) Parse(data []byte) {
-	sb := utils.BytesToString(data)
-	sd := gjson.Get(sb, "data").String()
-	err := utils.UnmarshalStr(sd, o)
-	if err != nil {
-		log.Error("parse OnlineRankV2 failed")
+	if err := o.ParseJSON(data); err != nil {
+		log.WithError(err).Error("parse online rank v2 failed")
 	}
+}
+func (o *OnlineRankV2) ParseJSON(data []byte) error {
+	var next OnlineRankV2
+	if err := decodeData(data, &next); err != nil {
+		return err
+	}
+	if next.OnlineList == nil {
+		return fmt.Errorf("online rank has no online_list")
+	}
+	for index, value := range gjson.GetBytes(data, "data.online_list").Array() {
+		if raw := value.Get("uinfo"); raw.IsObject() {
+			if err := json.Unmarshal([]byte(raw.Raw), &next.OnlineList[index].UserDetails); err != nil {
+				return err
+			}
+		}
+	}
+	if next.RankType == "" {
+		next.RankType = "online_rank"
+	}
+	*o = next
+	return nil
 }
 
 type LiveInteractiveGame struct {

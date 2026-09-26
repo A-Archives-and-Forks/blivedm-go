@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -150,23 +150,17 @@ func postSilentUserResponse(endpoint, cookie, referer string, form url.Values) (
 	}, nil
 }
 
-func postLiveForm(endpoint, cookie, referer string, form url.Values, result interface{}) error {
-	req, err := http.NewRequest("POST", endpoint, strings.NewReader(form.Encode()))
+func postLiveForm(endpoint, cookie, referer string, form url.Values, result any) error {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0")
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Referer", referer)
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	return json.NewDecoder(resp.Body).Decode(result)
+	return decodeResponse(req, result)
 }
